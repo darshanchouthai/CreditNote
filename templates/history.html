@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>History</title>
+    <style>
+        body { font-family: sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .btn { padding: 5px 10px; text-decoration: none; border-radius: 4px; font-size: 0.9rem;}
+        .btn-edit { background: #ffc107; color: black; }
+        .btn-pdf { background: #dc3545; color: white; } /* Red for PDF */
+        .nav a { margin-right: 15px; font-weight: bold; text-decoration: none; color: #333;}
+    </style>
+</head>
+<body>
+    <div class="nav">
+        <a href="/">New Note</a>
+        <a href="/history">History</a>
+    </div>
+
+    <h2>Credit Note History</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Credit Note No</th>
+                <th>Party</th>
+                <th>WO No</th>
+                <th>Amount</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for note in notes %}
+            <tr>
+                <td>{{ note.date }}</td>
+                <td>{{ note.credit_note_no }}</td>
+                <td>{{ note.party_name }}</td>
+                <td>{{ note.wo_no }}</td>
+                <td>{{ note.amount }}</td>
+                <td>
+                    <a href="/edit/{{ note.id }}" class="btn btn-edit">Edit</a>
+                    <a href="/download_pdf/{{ note.id }}" class="btn btn-pdf" target="_blank">Download PDF</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>

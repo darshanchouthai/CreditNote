@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Credit Note Manager</title>
+    <style>
+        body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
+        .form-group { margin-bottom: 1rem; }
+        label { display: block; font-weight: bold; margin-bottom: 0.5rem; }
+        input, select, textarea { width: 100%; padding: 8px; box-sizing: border-box; }
+        button { padding: 10px 20px; background: #007bff; color: white; border: none; cursor: pointer; }
+        .nav { margin-bottom: 20px; }
+        .nav a { margin-right: 15px; text-decoration: none; color: #333; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="nav">
+    <a href="/">New Note</a>
+    <a href="/history">History</a>
+</div>
+
+<h2>{% if note %}Edit{% else %}Create{% endif %} Credit Note</h2>
+
+<form action="/save" method="POST">
+    <input type="hidden" name="note_id" value="{{ note['id'] if note else '' }}">
+
+    <div class="form-group">
+        <label>Credit Note No:</label>
+        <input type="text" name="cn_no" value="{{ note['credit_note_no'] if note else 'Oct 25/014' }}" required>
+    </div>
+
+    <div class="form-group">
+        <label>Date:</label>
+        <input type="text" name="date" value="{{ note['date'] if note else '31.10.2025' }}" required>
+    </div>
+
+    <div class="form-group">
+        <label>Party Name:</label>
+        <select id="partySelect" name="party_name" onchange="updatePartyDetails()" required>
+            <option value="">-- Select Party --</option>
+            {% for name in parties %}
+            <option value="{{ name }}" {% if note and note['party_name'] == name %}selected{% endif %}>{{ name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label>Party Address:</label>
+        <textarea id="partyAddress" name="party_address" rows="3">{{ note['party_address'] if note else '' }}</textarea>
+    </div>
+
+    <div class="form-group">
+        <label>WO No:</label>
+        <select id="woSelect" name="wo_no" required>
+            {% if note %}
+            <option value="{{ note['wo_no'] }}" selected>{{ note['wo_no'] }}</option>
+            {% else %}
+            <option value="">-- Select Party First --</option>
+            {% endif %}
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label>Particulars (Description):</label>
+        <input type="text" name="particulars" value="{{ note['particulars'] if note else 'Deduction Againest FLMS Charges' }}">
+    </div>
+
+    <div class="form-group">
+        <label>Amount (Rs):</label>
+        <input type="number" step="0.01" name="amount" value="{{ note['amount'] if note else '1000.00' }}">
+    </div>
+
+    <button type="submit">Save Credit Note</button>
+</form>
+
+<script>
+    async function updatePartyDetails() {
+        const partyName = document.getElementById('partySelect').value;
+        const woSelect = document.getElementById('woSelect');
+        const addressBox = document.getElementById('partyAddress');
+
+        if (!partyName) return;
+
+        const response = await fetch(`/get_party_details/${encodeURIComponent(partyName)}`);
+        const data = await response.json();
+
+        addressBox.value = data.address || '';
+
+        woSelect.innerHTML = '';
+        if (data.wos) {
+            data.wos.forEach(wo => {
+                const option = document.createElement('option');
+                option.value = wo;
+                option.textContent = wo;
+                woSelect.appendChild(option);
+            });
+        }
+    }
+</script>
+
+</body>
+</html>
