@@ -1,13 +1,15 @@
 from flask import Flask, render_template, request, redirect, url_for, jsonify, make_response
 import mysql.connector
 import io
+import qrcode # NEW IMPORT
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import mm
+from reportlab.lib.utils import ImageReader # NEW IMPORT
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import Paragraph
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib.enums import TA_CENTER
 
 app = Flask(__name__)
 
@@ -22,11 +24,11 @@ DB_CONFIG = {
 # --- Party Data Mapping ---
 PARTY_DATA = {
     "Aakshya Infra Projects": {
-        "address": "Kempegouda International Airport, Bengaluru",
+        "address": "Fixed address details here...",
         "wos": ["6000000055"]
     },
     "Ashok Buildcon – Davanagere": {
-        "address": "Davanagere",
+        "address": "Davanagere Site Address Here...",
         "wos": ["18020076-10-10", "18015821-10-10"]
     },
     "Ashok Buildcon – Tumkur Sec 1": {
@@ -34,7 +36,7 @@ PARTY_DATA = {
         "wos": ["18019662-10-10", "18020038-10-10"]
     },
     "Ashok Buildcon – Tumkur Sec 2": {
-        "address": "Tumkur Sec 2 ",
+        "address": "Tumkur Sec 2 Address Here...",
         "wos": ["18020039-10-10"]
     }
 }
@@ -72,17 +74,16 @@ def init_db():
 
 init_db()
 
-# --- PDF Generation Logic (Refined for Perfect Fit) ---
-def create_pdf(note):
+# --- PDF Generation Logic ---
+def create_pdf(note, download_url):
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
     
-    # -- Tighter Margins to maximize printable width --
+    # Layout Constants
     left_margin = 8 * mm
     right_margin = width - 8 * mm
     top_margin = height - 10 * mm
-    bottom_margin = 10 * mm
     content_width = right_margin - left_margin
     
     # Calculations
@@ -90,11 +91,6 @@ def create_pdf(note):
     gst_val = amount * 0.18
     net_total = amount + gst_val
 
-    # --- Draw Outer Border ---
-    # Main Box Height: roughly from top to footer
-    c.setLineWidth(1)
-    # We will draw specific boxes rather than one giant rect to ensure clean lines
-    
     # === HEADER ===
     y = top_margin - 5*mm
     c.setFont("Helvetica-Bold", 12)
@@ -115,7 +111,29 @@ def create_pdf(note):
     
     # Header Box
     header_bottom = y - 2*mm
+    c.setLineWidth(1)
     c.rect(left_margin, header_bottom, content_width, top_margin - header_bottom)
+    
+    # === QR CODE GENERATION ===
+    # 1. Generate QR Image
+    qr = qrcode.QRCode(box_size=10, border=1)
+    qr.add_data(download_url)
+    qr.make(fit=True)
+    qr_img = qr.make_image(fill_color="black", back_color="white")
+    
+    # 2. Convert to ReportLab Image
+    qr_buffer = io.BytesIO()
+    qr_img.save(qr_buffer, format="PNG")
+    qr_buffer.seek(0)
+    qr_image_reader = ImageReader(qr_buffer)
+    
+    # 3. Draw on PDF (Positioned at top right inside header)
+    qr_size = 20 * mm
+    qr_x = right_margin - qr_size - 2*mm
+    qr_y = top_margin - qr_size - 2*mm
+    c.drawImage(qr_image_reader, qr_x, qr_y, width=qr_size, height=qr_size)
+    c.setFont("Helvetica", 6)
+    c.drawCentredString(qr_x + qr_size/2, qr_y - 2*mm, "Scan to Download")
     
     # === CREDIT NOTE STRIP ===
     strip_height = 6*mm
@@ -137,7 +155,7 @@ def create_pdf(note):
     c.drawString(left_margin + 2*mm, curr_y, "GST No: 29AHSPC4247N1ZP")
     
     # Right Side Info (Project)
-    c.drawString(left_margin + 110*mm, strip_y - 5*mm, f"Projects : {note['party_name']}") # Fixed text
+    c.drawString(left_margin + 110*mm, strip_y - 5*mm, "Projects : Ashoka Buildcon Ltd")
     
     # Right Side Info (Dates/Nos)
     right_col_x = right_margin - 65*mm
@@ -148,141 +166,91 @@ def create_pdf(note):
     curr_y -= 4*mm
     c.drawString(right_col_x, curr_y, f"Date: {note['date']}")
     
-    # Party Info (Bottom Left of Info Block)
+    # Party Info
     curr_y = info_y + 15*mm
     c.drawString(left_margin + 2*mm, curr_y, f"Party Name: {note['party_name']}")
     curr_y -= 4*mm
-    # Handle address wrapping simply
-    addr = note['party_address'][:60] # simple trim for safety, better wrapping below
+    addr = note['party_address'][:60]
     c.drawString(left_margin + 2*mm, curr_y, addr)
     curr_y -= 4*mm
     c.drawString(left_margin + 2*mm, curr_y, "GST No: 29AABCA9292J1Z6")
 
     # === DATA TABLE ===
-    # Column Setup - Adjusted for better fit
-    # Total Width available = content_width (approx 194mm)
-    # SL=8, Period=18, HSN=18, Partic=80, Qty=12, Unit=10, Rate=22, Amt=26
-    
     col_widths = [8*mm, 18*mm, 18*mm, 80*mm, 12*mm, 10*mm, 22*mm, 26*mm]
-    
-    # Verify width matches page
-    # current_total = sum(col_widths) # Should be close to content_width
-    
-    # X coordinates for vertical lines
     x_positions = [left_margin]
     current_x = left_margin
     for w in col_widths:
         current_x += w
         x_positions.append(current_x)
-    
-    # Ensure last line hits exact margin
     x_positions[-1] = right_margin
     
     table_top = info_y
     header_height = 6*mm
-    row_height = 6*mm # Smaller row height as requested
-    num_rows = 15 # Fixed number of rows to fill page
-    
+    row_height = 6*mm
+    num_rows = 15
     table_bottom = table_top - header_height - (row_height * num_rows)
     
-    # Draw Grid Outline
+    # Draw Grid
     c.rect(left_margin, table_bottom, content_width, header_height + (row_height * num_rows))
-    
-    # Draw Horizontal Header Line
     c.line(left_margin, table_top - header_height, right_margin, table_top - header_height)
-    
-    # Draw Vertical Lines
     for x in x_positions:
         c.line(x, table_top, x, table_bottom)
         
-    # Draw Headers
+    # Headers
     headers = ["SL No", "Period", "HSN Code", "Perticulers", "Bill Qty", "Unit", "Rate", "Amount"]
-    c.setFont("Helvetica-Bold", 8) # Smaller font
+    c.setFont("Helvetica-Bold", 8)
     text_y = table_top - 4.5*mm
-    
     for i, h in enumerate(headers):
-        # Center text in column
         col_center = x_positions[i] + (col_widths[i] / 2)
         c.drawCentredString(col_center, text_y, h)
         
-    # Draw Data Row (First Row)
+    # Data Row
     data_y_start = table_top - header_height
     c.setFont("Helvetica-Bold", 8)
-    
-    # Helper to center text in a specific cell
     def draw_cell_text(col_index, text, y_pos):
         center_x = x_positions[col_index] + (col_widths[col_index] / 2)
         c.drawCentredString(center_x, y_pos - 4.5*mm, str(text))
 
-    # Row 1 Data
     draw_cell_text(0, "1", data_y_start)
-    draw_cell_text(4, "1", data_y_start) # Qty
-    draw_cell_text(5, "1", data_y_start) # Unit
+    draw_cell_text(4, "1", data_y_start)
+    draw_cell_text(5, "1", data_y_start)
     draw_cell_text(6, f"{amount:.2f}", data_y_start)
     draw_cell_text(7, f"{amount:.2f}", data_y_start)
     
-    # --- Particulars Text Wrapping ---
-    # This prevents the text from crossing into the next column
-    particulars_text = note['particulars']
-    style = getSampleStyleSheet()["Normal"]
-    style.fontName = "Helvetica-Bold"
-    style.fontSize = 8
-    style.alignment = TA_CENTER
-    
-    # Create a Paragraph
-    p = Paragraph(particulars_text, style)
-    # Wrap it to fit in the column width (minus padding)
+    # Wrapped Particulars
+    p = Paragraph(note['particulars'], getSampleStyleSheet()["Normal"])
+    p.style.fontName = "Helvetica-Bold"
+    p.style.fontSize = 8
+    p.style.alignment = TA_CENTER
     avail_width = col_widths[3] - 4*mm 
-    w, h = p.wrap(avail_width, row_height)
-    # Draw it
+    p.wrap(avail_width, row_height)
     p.drawOn(c, x_positions[3] + 2*mm, data_y_start - 4.5*mm)
 
-    # Draw Horizontal Grid Lines for empty rows
+    # Empty Rows
     current_y = data_y_start
     for r in range(num_rows):
         current_y -= row_height
         c.line(left_margin, current_y, right_margin, current_y)
 
-    # === TOTALS SECTION ===
-    # This sits below the main table grid
-    # Columns 0-6 (SL to Rate) are merged visually, but we need lines for the last columns
-    
-    # We need 3 rows: Net Total, GST, Net Amount
+    # === TOTALS ===
     totals_row_height = 6*mm
     totals_start_y = table_bottom
-    
-    # Draw the box for totals
     c.rect(left_margin, totals_start_y - (totals_row_height*3), content_width, totals_row_height*3)
     
-    # Vertical lines extension for the last 2 columns (Rate/Amount divider)
-    # Rate col is index 6, Amount is index 7
-    # We need lines at x_positions[6] and x_positions[7] and x_positions[8]
-    
-    line_x_start = x_positions[6] # Start of Rate Column
-    line_x_mid = x_positions[7]   # Start of Amount Column
-    
-    # Draw vertical lines down through the totals section
+    line_x_start = x_positions[6]
+    line_x_mid = x_positions[7]
     c.line(line_x_start, totals_start_y, line_x_start, totals_start_y - (totals_row_height*3))
     c.line(line_x_mid, totals_start_y, line_x_mid, totals_start_y - (totals_row_height*3))
-    
-    # Draw Horizontal lines for totals
     c.line(line_x_start, totals_start_y - totals_row_height, right_margin, totals_start_y - totals_row_height)
     c.line(line_x_start, totals_start_y - (totals_row_height*2), right_margin, totals_start_y - (totals_row_height*2))
 
-    # Text for Totals
     c.setFont("Helvetica-Bold", 8)
-    
-    # Net Total
     y_pos = totals_start_y - 4.5*mm
     c.drawString(line_x_start + 2*mm, y_pos, "Net Total")
     c.drawRightString(right_margin - 2*mm, y_pos, f"{amount:.2f}")
-    
-    # GST
     y_pos -= totals_row_height
     c.drawString(line_x_start + 2*mm, y_pos, "GST@ 18%")
     c.drawRightString(right_margin - 2*mm, y_pos, f"{gst_val:.2f}")
-    
-    # Final Amount
     y_pos -= totals_row_height
     c.drawString(line_x_start + 2*mm, y_pos, "Net Amount")
     c.drawRightString(right_margin - 2*mm, y_pos, f"{net_total:.2f}")
@@ -291,17 +259,13 @@ def create_pdf(note):
     footer_box_y = totals_start_y - (totals_row_height*3)
     sig_box_width = 70*mm
     sig_box_height = 25*mm
-    
-    # Signature Box (Bottom Right)
     c.rect(right_margin - sig_box_width, footer_box_y - sig_box_height, sig_box_width, sig_box_height)
     
     c.setFont("Helvetica-Bold", 10)
     c.setFillColor(colors.darkblue)
-
+    sig_center = right_margin - (sig_box_width/2)
+    sig_top = footer_box_y - 5*mm
     
-    
-    # Artificial Signature
-   
 
     c.save()
     buffer.seek(0)
@@ -362,27 +326,6 @@ def edit(id):
     conn.close()
     return render_template('index.html', parties=PARTY_DATA, note=note)
 
-@app.route('/download_pdf/<int:id>')
-def download_pdf(id):
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM notes WHERE id=%s", (id,))
-    note = cursor.fetchone()
-    cursor.close()
-    
-    if not note:
-        return "Note not found", 404
-        
-    pdf_buffer = create_pdf(note)
-    response = make_response(pdf_buffer.read())
-    response.headers['Content-Type'] = 'application/pdf'
-    response.headers['Content-Disposition'] = f'inline; filename=Credit_Note_{note["credit_note_no"]}.pdf'
-    return response
-
-@app.route('/get_party_details/<party_name>')
-def get_party(party_name):
-    return jsonify(PARTY_DATA.get(party_name, {}))
-
 @app.route('/delete/<int:id>')
 def delete_note(id):
     conn = get_db_connection()
@@ -397,5 +340,37 @@ def delete_note(id):
         conn.close()
     return redirect(url_for('history'))
 
+@app.route('/download_pdf/<int:id>')
+def download_pdf(id):
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM notes WHERE id=%s", (id,))
+    note = cursor.fetchone()
+    cursor.close()
+    
+    if not note:
+        return "Note not found", 404
+    
+    # --- CHANGE THIS SECTION ---
+    # Option 1: Automatic (Keep this if you want it to detect the current domain)
+    # download_url = url_for('download_pdf', id=id, _external=True)
+
+    # Option 2: Hardcoded (Use this to force the PythonAnywhere URL)
+    # REPLACE 'yourusername' with your actual PythonAnywhere username
+    base_url = "https://creditnote.pythonanywhere.com" 
+    download_url = f"{base_url}/download_pdf/{id}" 
+    # ---------------------------
+        
+    pdf_buffer = create_pdf(note, download_url)
+    response = make_response(pdf_buffer.read())
+    response.headers['Content-Type'] = 'application/pdf'
+    response.headers['Content-Disposition'] = f'inline; filename=Credit_Note_{note["credit_note_no"]}.pdf'
+    return response
+
+@app.route('/get_party_details/<party_name>')
+def get_party(party_name):
+    return jsonify(PARTY_DATA.get(party_name, {}))
+
 if __name__ == '__main__':
-    app.run(debug=True)
+    # '0.0.0.0' makes it accessible from other devices on the same network
+    app.run(host='0.0.0.0', port=5000, debug=True)
