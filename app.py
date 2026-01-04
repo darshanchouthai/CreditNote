@@ -137,7 +137,7 @@ def create_pdf(note):
     c.drawString(left_margin + 2*mm, curr_y, "GST No: 29AHSPC4247N1ZP")
     
     # Right Side Info (Project)
-    c.drawString(left_margin + 110*mm, strip_y - 5*mm, "Projects : Ashoka Buildcon Ltd") # Fixed text
+    c.drawString(left_margin + 110*mm, strip_y - 5*mm, f"Projects : {note['party_name']}") # Fixed text
     
     # Right Side Info (Dates/Nos)
     right_col_x = right_margin - 65*mm
