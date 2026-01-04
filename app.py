@@ -383,5 +383,19 @@ def download_pdf(id):
 def get_party(party_name):
     return jsonify(PARTY_DATA.get(party_name, {}))
 
+@app.route('/delete/<int:id>')
+def delete_note(id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM notes WHERE id=%s", (id,))
+        conn.commit()
+    except mysql.connector.Error as err:
+        print(f"Error deleting note: {err}")
+    finally:
+        cursor.close()
+        conn.close()
+    return redirect(url_for('history'))
+
 if __name__ == '__main__':
     app.run(debug=True)
